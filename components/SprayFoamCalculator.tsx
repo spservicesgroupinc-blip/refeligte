@@ -13,9 +13,9 @@ import { useEstimates } from '../hooks/useEstimates';
 import { calculateResults } from '../utils/calculatorHelpers';
 import { generateEstimatePDF, generateDocumentPDF, generateWorkOrderPDF } from '../utils/pdfGenerator';
 import { syncUp } from '../services/api';
+import { signOut } from '../services/auth';
 
 import LoginPage from './LoginPage';
-import { LandingPage } from './LandingPage';
 import { Layout } from './Layout';
 import { Calculator } from './Calculator';
 import { Dashboard } from './Dashboard';
@@ -57,9 +57,9 @@ const SprayFoamCalculator: React.FC = () => {
 
   const results = useMemo(() => calculateResults(appData), [appData]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOut();
     dispatch({ type: 'LOGOUT' });
-    localStorage.removeItem('foamProSession');
   };
 
   const resetCalculator = () => {
@@ -185,16 +185,11 @@ const SprayFoamCalculator: React.FC = () => {
     }
   };
 
-  if (!ui.hasTrialAccess && !session) {
-      return <LandingPage onEnterApp={() => dispatch({ type: 'SET_TRIAL_ACCESS', payload: true })} />;
-  }
-
   if (!session) {
       return <LoginPage 
           onLoginSuccess={(s) => { 
               dispatch({ type: 'SET_SESSION', payload: s }); 
               localStorage.setItem('foamProSession', JSON.stringify(s)); 
-              localStorage.setItem('foamProTrialAccess', 'true');
           }} 
           installPrompt={deferredPrompt}
           onInstall={handleInstallApp}

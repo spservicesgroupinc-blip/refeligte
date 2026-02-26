@@ -299,10 +299,11 @@ export interface CalculationResults {
 export interface UserSession {
   username: string;
   companyName: string;
-  spreadsheetId: string;
-  folderId?: string;
+  companyId: string;
+  spreadsheetId?: string; // Legacy — Google Sheets (remove after migration)
+  folderId?: string;      // Legacy — Google Drive (remove after migration)
   token?: string;
-  role: 'admin' | 'crew'; // Added Role
+  role: 'admin' | 'crew';
   crewId?: string;
   crewName?: string;
 }

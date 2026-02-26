@@ -103,12 +103,11 @@ type ViewType = 'calculator' | 'settings' | 'profile' | 'warehouse' | 'estimate'
 interface UIState {
   view: ViewType;
   isLoading: boolean;
-  isInitialized: boolean; // NEW: Prevents syncing before cloud load
+  isInitialized: boolean;
   syncStatus: 'idle' | 'syncing' | 'error' | 'success' | 'pending';
   notification: { type: 'success' | 'error', message: string } | null;
   viewingCustomerId: string | null;
   editingEstimateId: string | null;
-  hasTrialAccess: boolean;
 }
 
 interface ContextState {
@@ -119,7 +118,6 @@ interface ContextState {
 
 type Action = 
   | { type: 'SET_SESSION'; payload: UserSession | null }
-  | { type: 'SET_TRIAL_ACCESS'; payload: boolean }
   | { type: 'LOAD_DATA'; payload: Partial<CalculatorState> }
   | { type: 'UPDATE_DATA'; payload: Partial<CalculatorState> }
   | { type: 'UPDATE_NESTED_DATA'; category: keyof CalculatorState; field: string; value: any }
@@ -145,7 +143,6 @@ const initialState: ContextState = {
     notification: null,
     viewingCustomerId: null,
     editingEstimateId: null,
-    hasTrialAccess: false
   }
 };
 
@@ -153,8 +150,6 @@ const calculatorReducer = (state: ContextState, action: Action): ContextState =>
   switch (action.type) {
     case 'SET_SESSION':
       return { ...state, session: action.payload };
-    case 'SET_TRIAL_ACCESS':
-      return { ...state, ui: { ...state.ui, hasTrialAccess: action.payload } };
     case 'LOAD_DATA':
       return { ...state, appData: { ...state.appData, ...action.payload }, ui: { ...state.ui, isLoading: false } };
     case 'UPDATE_DATA':

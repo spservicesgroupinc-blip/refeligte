@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Upload, Save, Loader2, Users, KeyRound, ShieldCheck, Copy, Plus, Trash } from 'lucide-react';
-import { CalculatorState } from '../types';
+import { CalculatorState, CrewProfile } from '../types';
 
 interface ProfileProps {
   state: CalculatorState;

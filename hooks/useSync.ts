@@ -16,7 +16,6 @@ export const useSync = () => {
       try {
         const parsedSession = JSON.parse(savedSession);
         dispatch({ type: 'SET_SESSION', payload: parsedSession });
-        dispatch({ type: 'SET_TRIAL_ACCESS', payload: true });
       } catch (e) {
         localStorage.removeItem('foamProSession');
       }
@@ -30,20 +29,27 @@ export const useSync = () => {
   useEffect(() => {
     if (!session) return;
 
+    // If no spreadsheetId (Supabase user), load defaults and stop loading
+    if (!session.spreadsheetId) {
+      dispatch({ type: 'LOAD_DATA', payload: DEFAULT_STATE });
+      dispatch({ type: 'SET_INITIALIZED', payload: true });
+      dispatch({ type: 'SET_LOADING', payload: false });
+      return;
+    }
+
     const initializeApp = async () => {
       dispatch({ type: 'SET_LOADING', payload: true });
       dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
       
       try {
           // Attempt Fetch from Cloud (Source of Truth)
-          const cloudData = await syncDown(session.spreadsheetId);
+          const cloudData = await syncDown(session.spreadsheetId!);
           
           if (cloudData) {
             // Deep merge cloud data over default state
             const mergedState = {
                 ...DEFAULT_STATE,
                 ...cloudData,
-                // Ensure deeply nested objects are merged correctly if partial
                 companyProfile: { ...DEFAULT_STATE.companyProfile, ...(cloudData.companyProfile || {}) },
                 warehouse: { ...DEFAULT_STATE.warehouse, ...(cloudData.warehouse || {}) },
                 costs: { ...DEFAULT_STATE.costs, ...(cloudData.costs || {}) },
@@ -55,12 +61,6 @@ export const useSync = () => {
             dispatch({ type: 'SET_INITIALIZED', payload: true }); 
             lastSyncedStateRef.current = JSON.stringify(mergedState);
             dispatch({ type: 'SET_SYNC_STATUS', payload: 'success' });
-            
-            // Check if PIN is missing and warn
-            if (!mergedState.companyProfile.crewAccessPin) {
-                console.warn("Crew PIN missing from cloud data");
-                dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Warning: Crew PIN not configured.' } });
-            }
 
           } else {
             throw new Error("Empty response from cloud");
@@ -68,7 +68,6 @@ export const useSync = () => {
       } catch (e) {
           console.error("Cloud sync failed:", e);
           
-          // Fallback: If cloud fails (offline), try Local Storage
           const localSaved = localStorage.getItem(`foamProState_${session.username}`);
           
           if (localSaved) {
@@ -80,10 +79,9 @@ export const useSync = () => {
               }
               dispatch({ type: 'LOAD_DATA', payload: localState });
               dispatch({ type: 'SET_INITIALIZED', payload: true });
-              dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' }); // Warning state
+              dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
               dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Offline Mode: Using local backup.' } });
           } else {
-              // New User or Total Failure: Load Defaults
               dispatch({ type: 'LOAD_DATA', payload: DEFAULT_STATE });
               dispatch({ type: 'SET_INITIALIZED', payload: true });
               dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Sync Failed. Using Defaults.' } });
@@ -99,7 +97,7 @@ export const useSync = () => {
 
   // 3. AUTO-SYNC (Write to Cloud)
   useEffect(() => {
-    if (ui.isLoading || !ui.isInitialized || !session) return;
+    if (ui.isLoading || !ui.isInitialized || !session || !session.spreadsheetId) return;
     if (session.role === 'crew') return;
 
     const currentStateStr = JSON.stringify(appData);
@@ -117,7 +115,7 @@ export const useSync = () => {
     syncTimerRef.current = setTimeout(async () => {
       dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
       
-      const success = await syncUp(appData, session.spreadsheetId);
+      const success = await syncUp(appData, session.spreadsheetId!);
       
       if (success) {
         lastSyncedStateRef.current = currentStateStr;
@@ -133,10 +131,10 @@ export const useSync = () => {
 
   // 4. MANUAL FORCE SYNC
   const handleManualSync = async () => {
-    if (!session) return;
+    if (!session || !session.spreadsheetId) return;
     dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
     
-    const success = await syncUp(appData, session.spreadsheetId);
+    const success = await syncUp(appData, session.spreadsheetId!);
     
     if (success) {
       lastSyncedStateRef.current = JSON.stringify(appData);
