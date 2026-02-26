@@ -1,0 +1,40 @@
+
+{
+  "name": "Spray Foam Pro Calculator",
+  "short_name": "Foam Pro",
+  "description": "Professional Spray Foam Estimation & Rig Management",
+  "id": "spray-foam-pro-calc",
+  "start_url": "/",
+  "scope": "/",
+  "categories": ["business", "productivity", "utilities"],
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/10473/10473634.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/10473/10473634.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/10473/10473634.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/10473/10473634.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
