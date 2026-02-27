@@ -344,7 +344,8 @@ const SprayFoamCalculator: React.FC = () => {
                 onUpdateCrews={(crews) => dispatch({ type: 'UPDATE_DATA', payload: { crews } })}
                 onManualSync={handleManualSync}
                 syncStatus={ui.syncStatus}
-                username={session?.username} 
+                username={session?.username}
+                companyId={session?.companyId}
             />
         )}
     </Layout>

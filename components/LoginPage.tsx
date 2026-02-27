@@ -207,7 +207,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
     setError(null);
     setIsLoading(true);
     try {
-      const { session, error: authError } = await crewLogin(formData.companyId, formData.crewPin);
+      const { session, error: authError } = await crewLogin(formData.email, formData.password);
       if (authError) throw new Error(authError);
       if (session) onLoginSuccess(session);
     } catch (err: any) {
@@ -421,27 +421,31 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
 
             <form onSubmit={handleCrewLogin} className="space-y-4">
               <InputField
-                label="Company ID"
-                icon={Building2}
-                placeholder="Enter your company name"
-                value={formData.companyId}
-                field="companyId"
+                label="Crew Email"
+                icon={Mail}
+                type="email"
+                placeholder="crew@company.com"
+                value={formData.email}
+                field="email"
                 onChange={handleField}
               />
               <InputField
-                label="Crew Access PIN"
-                icon={KeyRound}
+                label="Password"
+                icon={Lock}
                 type="password"
-                placeholder="Enter PIN"
-                value={formData.crewPin}
-                field="crewPin"
+                placeholder="••••••••"
+                value={formData.password}
+                field="password"
+                showToggle
+                showPassword={showPassword}
+                onTogglePassword={togglePassword}
                 onChange={handleField}
               />
               <SubmitButton label="Access Jobs" isLoading={isLoading} />
             </form>
 
             <div className="mt-6 text-center text-xs text-slate-400">
-              Contact your administrator if you don't have the Company ID or Crew PIN.
+              Your admin sets up crew login credentials in the Organization Profile.
             </div>
           </div>
         )}

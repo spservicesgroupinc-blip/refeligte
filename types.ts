@@ -53,6 +53,8 @@ export interface CrewProfile {
   id: string;
   name: string;
   pin: string;
+  email?: string;              // Supabase Auth email for this crew/rig
+  hasAuthAccount?: boolean;    // Whether a Supabase Auth account has been created
   leadName?: string;
   phone?: string;
   truckInfo?: string;

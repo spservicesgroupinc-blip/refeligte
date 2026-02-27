@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { createClient } from '@supabase/supabase-js';
 import type { UserSession } from '../types';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -64,49 +65,73 @@ export const sendPasswordReset = async (email: string): Promise<{ error: string 
   return { error: error?.message ?? null };
 };
 
-// ─── Crew Login (company username + PIN → lookup company_members) ─
+// ─── Crew Login (email + password → real Supabase Auth session) ───
 export const crewLogin = async (
-  companyIdentifier: string,
-  pin: string
+  email: string,
+  password: string
 ): Promise<AuthResult> => {
-  // Look up the company by name (case-insensitive)
-  const { data: company, error: companyErr } = await supabase
-    .from('companies')
-    .select('id, name')
-    .ilike('name', companyIdentifier)
-    .single();
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
 
-  if (companyErr || !company) {
-    return { session: null, error: 'Company not found. Check the Company ID.' };
+  if (error) return { session: null, error: error.message };
+  if (!data.user) return { session: null, error: 'Login failed.' };
+
+  const userSession = await buildSessionFromUser(data.user, data.session);
+  if (!userSession) {
+    return { session: null, error: 'No crew membership found. Contact your administrator.' };
   }
 
-  // Find crew member with matching PIN in that company
-  const { data: member, error: memberErr } = await supabase
-    .from('company_members')
-    .select('id, crew_name, role, user_id')
-    .eq('company_id', company.id)
-    .eq('crew_pin', pin)
-    .eq('role', 'crew')
-    .eq('status', 'Active')
-    .single();
-
-  if (memberErr || !member) {
-    return { session: null, error: 'Invalid PIN. Contact your administrator.' };
+  // Ensure they're actually a crew member
+  if (userSession.role !== 'crew') {
+    return { session: null, error: 'This account is not a crew login. Use Admin Access instead.' };
   }
 
-  // Sign in as the crew auth user (or use a shared crew account approach)
-  // For now, we generate a session for the crew user_id if they have an auth account
-  // If your crew members share an auth account, adjust this logic accordingly
-  const crewSession: UserSession = {
-    username: company.name,
-    companyName: company.name,
-    companyId: company.id,
-    role: 'crew',
-    crewId: member.id,
-    crewName: member.crew_name || 'Crew',
-  };
+  return { session: userSession, error: null };
+};
 
-  return { session: crewSession, error: null };
+// ─── Create Crew Auth Account (called by admin from Profile page) ──
+// Uses a separate, non-persisted Supabase client so the admin
+// stays logged in while the crew auth user is created.
+export const createCrewAuthAccount = async (
+  companyId: string,
+  memberId: string,
+  email: string,
+  password: string,
+  crewName: string
+): Promise<{ userId: string | null; error: string | null }> => {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  // Throwaway client — won't touch the admin's session
+  const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+
+  const { data, error } = await tempClient.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        role: 'crew',
+        company_id: companyId,
+        member_id: memberId,
+        crew_name: crewName,
+      },
+    },
+  });
+
+  if (error) return { userId: null, error: error.message };
+  if (!data.user) return { userId: null, error: 'Signup failed — no user returned.' };
+
+  // The DB trigger (handle_new_user) will link this auth user to the
+  // existing company_members row using member_id + company_id.
+  return { userId: data.user.id, error: null };
 };
 
 // ─── Sign Out ────────────────────────────────────────────

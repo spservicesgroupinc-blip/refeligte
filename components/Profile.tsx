@@ -1,7 +1,8 @@
 
-import React from 'react';
-import { Upload, Save, Loader2, Users, KeyRound, ShieldCheck, Copy, Plus, Trash } from 'lucide-react';
+import React, { useState } from 'react';
+import { Upload, Save, Loader2, Users, KeyRound, ShieldCheck, Copy, Plus, Trash, Mail, CheckCircle2, AlertCircle } from 'lucide-react';
 import { CalculatorState, CrewProfile } from '../types';
+import { createCrewAuthAccount } from '../services/auth';
 
 interface ProfileProps {
   state: CalculatorState;
@@ -10,13 +11,65 @@ interface ProfileProps {
   onManualSync: () => void;
   syncStatus: string;
   username?: string; // Passed from session to display Company ID
+  companyId?: string; // Company ID for creating crew auth accounts
 }
 
-export const Profile: React.FC<ProfileProps> = ({ state, onUpdateProfile, onUpdateCrews, onManualSync, syncStatus, username }) => {
+export const Profile: React.FC<ProfileProps> = ({ state, onUpdateProfile, onUpdateCrews, onManualSync, syncStatus, username, companyId }) => {
   
+  // State for crew account creation
+  const [crewPasswords, setCrewPasswords] = useState<Record<string, string>>({});
+  const [crewCreating, setCrewCreating] = useState<Record<string, boolean>>({});
+  const [crewResults, setCrewResults] = useState<Record<string, { success: boolean; message: string }>>({});
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    // Optional: Add toast trigger here if desired, but simple copy is fine
+  };
+
+  const handleCreateCrewAccount = async (crew: CrewProfile, index: number) => {
+    if (!companyId) return;
+    if (!crew.email?.trim()) {
+      setCrewResults(prev => ({ ...prev, [crew.id]: { success: false, message: 'Email is required.' } }));
+      return;
+    }
+    const password = crewPasswords[crew.id];
+    if (!password || password.length < 6) {
+      setCrewResults(prev => ({ ...prev, [crew.id]: { success: false, message: 'Password must be at least 6 characters.' } }));
+      return;
+    }
+
+    setCrewCreating(prev => ({ ...prev, [crew.id]: true }));
+    setCrewResults(prev => { const next = { ...prev }; delete next[crew.id]; return next; });
+
+    try {
+      // First sync the crew row (so it exists in DB for the trigger)
+      onManualSync();
+      // Small delay to let the sync complete
+      await new Promise(r => setTimeout(r, 1500));
+
+      const { userId, error } = await createCrewAuthAccount(
+        companyId,
+        crew.id,
+        crew.email.trim(),
+        password,
+        crew.name
+      );
+
+      if (error) {
+        setCrewResults(prev => ({ ...prev, [crew.id]: { success: false, message: error } }));
+      } else {
+        // Mark as having an auth account
+        const newCrews = [...(state.crews || [])];
+        newCrews[index] = { ...newCrews[index], hasAuthAccount: true };
+        onUpdateCrews(newCrews);
+        setCrewResults(prev => ({ ...prev, [crew.id]: { success: true, message: 'Account created! Crew can now log in.' } }));
+        // Clear the password field
+        setCrewPasswords(prev => { const next = { ...prev }; delete next[crew.id]; return next; });
+      }
+    } catch (err: any) {
+      setCrewResults(prev => ({ ...prev, [crew.id]: { success: false, message: err.message || 'Failed to create account.' } }));
+    } finally {
+      setCrewCreating(prev => ({ ...prev, [crew.id]: false }));
+    }
   };
 
   return (
@@ -79,7 +132,12 @@ export const Profile: React.FC<ProfileProps> = ({ state, onUpdateProfile, onUpda
                 <div className="space-y-4">
                     {(state.crews || []).map((crew, index) => (
                         <div key={crew.id} className="flex flex-col gap-4 bg-slate-50 p-6 rounded-2xl border border-slate-200 relative">
-                            <div className="absolute top-4 right-4">
+                            <div className="absolute top-4 right-4 flex items-center gap-2">
+                                {crew.hasAuthAccount && (
+                                    <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg">
+                                        <CheckCircle2 className="w-3 h-3" /> Account Active
+                                    </span>
+                                )}
                                 <button 
                                     onClick={() => {
                                         const newCrews = (state.crews || []).filter((_, i) => i !== index);
@@ -109,18 +167,19 @@ export const Profile: React.FC<ProfileProps> = ({ state, onUpdateProfile, onUpda
                                 </div>
                                 <div>
                                     <label className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">
-                                        <KeyRound className="w-3 h-3"/> Access PIN
+                                        <Mail className="w-3 h-3"/> Login Email
                                     </label>
                                     <input 
-                                        type="text" 
-                                        value={crew.pin} 
+                                        type="email" 
+                                        value={crew.email || ''} 
                                         onChange={(e) => {
                                             const newCrews = [...(state.crews || [])];
-                                            newCrews[index] = { ...newCrews[index], pin: e.target.value };
+                                            newCrews[index] = { ...newCrews[index], email: e.target.value };
                                             onUpdateCrews(newCrews);
                                         }}
-                                        className="w-full p-3 bg-white border border-slate-200 rounded-xl font-mono font-bold focus:ring-2 focus:ring-brand outline-none"
-                                        placeholder="4-Digit PIN"
+                                        disabled={crew.hasAuthAccount}
+                                        className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold focus:ring-2 focus:ring-brand outline-none disabled:bg-slate-100 disabled:text-slate-500"
+                                        placeholder="crew@company.com"
                                     />
                                 </div>
                                 <div>
@@ -181,6 +240,54 @@ export const Profile: React.FC<ProfileProps> = ({ state, onUpdateProfile, onUpda
                                     </select>
                                 </div>
                             </div>
+
+                            {/* Create Auth Account Section */}
+                            {!crew.hasAuthAccount && (
+                                <div className="border-t border-slate-200 pt-4 mt-2">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <KeyRound className="w-4 h-4 text-slate-500" />
+                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Create Login Account</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Password</label>
+                                            <input
+                                                type="password"
+                                                value={crewPasswords[crew.id] || ''}
+                                                onChange={(e) => setCrewPasswords(prev => ({ ...prev, [crew.id]: e.target.value }))}
+                                                className="w-full p-3 bg-white border border-slate-200 rounded-xl font-bold focus:ring-2 focus:ring-brand outline-none"
+                                                placeholder="Min 6 characters"
+                                            />
+                                        </div>
+                                        <div className="flex items-end">
+                                            <button
+                                                onClick={() => handleCreateCrewAccount(crew, index)}
+                                                disabled={crewCreating[crew.id]}
+                                                className="w-full p-3 bg-brand hover:bg-brand-hover text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                                            >
+                                                {crewCreating[crew.id] ? (
+                                                    <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
+                                                ) : (
+                                                    <><ShieldCheck className="w-4 h-4" /> Create Account</>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {crewResults[crew.id] && (
+                                        <div className={`mt-3 p-3 rounded-xl text-xs font-medium flex items-center gap-2 ${
+                                            crewResults[crew.id].success 
+                                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                                : 'bg-red-50 text-red-600 border border-red-200'
+                                        }`}>
+                                            {crewResults[crew.id].success 
+                                                ? <CheckCircle2 className="w-4 h-4 shrink-0" />
+                                                : <AlertCircle className="w-4 h-4 shrink-0" />
+                                            }
+                                            {crewResults[crew.id].message}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     ))}
                     

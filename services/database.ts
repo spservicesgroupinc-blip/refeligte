@@ -84,7 +84,7 @@ export const updateFoamStock = async (
 export const fetchCrews = async (companyId: string): Promise<CrewProfile[]> => {
   const { data, error } = await supabase
     .from('company_members')
-    .select('id, crew_name, crew_pin, lead_name, phone, truck_info, status')
+    .select('id, crew_name, crew_pin, crew_email, user_id, lead_name, phone, truck_info, status')
     .eq('company_id', companyId)
     .eq('role', 'crew')
     .order('created_at', { ascending: true });
@@ -110,6 +110,7 @@ export const syncCrews = async (
             role: 'crew',
             crew_name: crew.name,
             crew_pin: crew.pin,
+            crew_email: crew.email || null,
             lead_name: crew.leadName || null,
             phone: crew.phone || null,
             truck_info: crew.truckInfo || null,
@@ -120,21 +121,16 @@ export const syncCrews = async (
       if (error) console.error('syncCrews upsert:', error);
     }
 
-    // Remove deleted crews
+    // Deactivate removed crews instead of deleting.
+    // Never delete auth-linked rows — that orphans auth users.
     const crewIds = crews.map((c) => c.id);
     if (crewIds.length > 0) {
       await supabase
         .from('company_members')
-        .delete()
+        .update({ status: 'Inactive' })
         .eq('company_id', companyId)
         .eq('role', 'crew')
         .not('id', 'in', `(${crewIds.join(',')})`);
-    } else {
-      await supabase
-        .from('company_members')
-        .delete()
-        .eq('company_id', companyId)
-        .eq('role', 'crew');
     }
     return true;
   } catch (err) {
@@ -733,6 +729,8 @@ function dbCrewToProfile(r: any): CrewProfile {
     id: r.id,
     name: r.crew_name || '',
     pin: r.crew_pin || '',
+    email: r.crew_email || undefined,
+    hasAuthAccount: !!r.user_id,
     leadName: r.lead_name || undefined,
     phone: r.phone || undefined,
     truckInfo: r.truck_info || undefined,
