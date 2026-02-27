@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { useCalculator, DEFAULT_STATE } from '../context/CalculatorContext';
 import { syncUp, syncDown } from '../services/api';
+import { syncProfileToSupabase } from '../services/database';
 
 export const useSync = () => {
   const { state, dispatch } = useCalculator();
@@ -97,7 +98,8 @@ export const useSync = () => {
 
   // 3. AUTO-SYNC (Write to Cloud)
   useEffect(() => {
-    if (ui.isLoading || !ui.isInitialized || !session || !session.spreadsheetId) return;
+    if (ui.isLoading || !ui.isInitialized || !session) return;
+    if (!session.spreadsheetId && !session.companyId) return;
     if (session.role === 'crew') return;
 
     const currentStateStr = JSON.stringify(appData);
@@ -115,7 +117,12 @@ export const useSync = () => {
     syncTimerRef.current = setTimeout(async () => {
       dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
       
-      const success = await syncUp(appData, session.spreadsheetId!);
+      let success = false;
+      if (session.spreadsheetId) {
+        success = await syncUp(appData, session.spreadsheetId!);
+      } else if (session.companyId) {
+        success = await syncProfileToSupabase(session.companyId, appData);
+      }
       
       if (success) {
         lastSyncedStateRef.current = currentStateStr;
@@ -131,15 +138,24 @@ export const useSync = () => {
 
   // 4. MANUAL FORCE SYNC
   const handleManualSync = async () => {
-    if (!session || !session.spreadsheetId) return;
+    if (!session) return;
     dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
-    
-    const success = await syncUp(appData, session.spreadsheetId!);
-    
+
+    let success = false;
+
+    if (session.spreadsheetId) {
+      // Legacy Google Sheets sync
+      success = await syncUp(appData, session.spreadsheetId!);
+    } else if (session.companyId) {
+      // Supabase sync
+      success = await syncProfileToSupabase(session.companyId, appData);
+    }
+
     if (success) {
       lastSyncedStateRef.current = JSON.stringify(appData);
       dispatch({ type: 'SET_SYNC_STATUS', payload: 'success' });
-      dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Cloud Sync Complete' } });
+      dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Profile Synced Successfully!' } });
+      dispatch({ type: 'SET_VIEW', payload: 'dashboard' });
       setTimeout(() => dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' }), 3000);
     } else {
       dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
