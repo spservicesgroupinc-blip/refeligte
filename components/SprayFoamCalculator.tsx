@@ -9,6 +9,7 @@ import {
 } from '../types';
 import { useCalculator, DEFAULT_STATE } from '../context/CalculatorContext';
 import { useSync } from '../hooks/useSync';
+import { useRealtime } from '../hooks/useRealtime';
 import { useEstimates } from '../hooks/useEstimates';
 import { calculateResults } from '../utils/calculatorHelpers';
 import { generateEstimatePDF, generateDocumentPDF, generateWorkOrderPDF } from '../utils/pdfGenerator';
@@ -32,6 +33,7 @@ const SprayFoamCalculator: React.FC = () => {
   const { state, dispatch } = useCalculator();
   const { appData, ui, session } = state;
   const { handleManualSync } = useSync(); 
+  useRealtime(); // Supabase Realtime — live sync for work orders + inventory
   const { loadEstimateForEditing, saveEstimate, handleDeleteEstimate, handleMarkPaid, saveCustomer, confirmWorkOrder, createPurchaseOrder } = useEstimates();
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
