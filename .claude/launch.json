@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "Foam Pro Dev",
-      "runtimeExecutable": "node_modules/.bin/vite.cmd",
-      "runtimeArgs": ["--host", "0.0.0.0", "--port", "3000"],
+      "runtimeExecutable": "C:\\Windows\\System32\\cmd.exe",
+      "runtimeArgs": ["/c", "C:\\Users\\russe\\OneDrive\\Desktop\\robert\\refeligte\\node_modules\\.bin\\vite.cmd", "--port", "3000"],
       "port": 3000
     }
   ]

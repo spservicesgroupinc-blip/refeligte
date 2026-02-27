@@ -4,7 +4,9 @@
       "Bash(npm install:*)",
       "mcp__Claude_Preview__preview_start",
       "Bash(where:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite build)"
     ]
   }
 }

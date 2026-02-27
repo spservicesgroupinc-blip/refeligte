@@ -447,7 +447,10 @@ export const CrewDashboard: React.FC<CrewDashboardProps> = ({ state, onLogout, s
                             </div>
 
                             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
-                                <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest border-b border-slate-200 pb-2">Material Usage</h4>
+                                <div className="border-b border-slate-200 pb-2">
+                                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest">Verify Material Usage</h4>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">Pre-filled with estimates — adjust up or down to reflect actual usage</p>
+                                </div>
                                 {selectedJob.materials?.openCellSets > 0 && (
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>

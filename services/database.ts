@@ -357,9 +357,12 @@ export const completeJobInSupabase = async (
 
     if (estErr) { console.error('completeJob estimate:', estErr); return failResult; }
 
-    // 2. Compute inventory delta (estimated − actual) and adjust warehouse
-    const ocDelta = (estimatedMaterials.openCellSets || 0) - (actuals.openCellSets || 0);
-    const ccDelta = (estimatedMaterials.closedCellSets || 0) - (actuals.closedCellSets || 0);
+    // 2. Compute inventory delta and adjust warehouse.
+    // Use reserved amounts (what was actually deducted at WO creation) as the baseline.
+    // Falls back to estimatedMaterials for older estimates that predate reservation tracking.
+    const baseline = estimatedMaterials.reserved ?? estimatedMaterials;
+    const ocDelta = (baseline.openCellSets || 0) - (actuals.openCellSets || 0);
+    const ccDelta = (baseline.closedCellSets || 0) - (actuals.closedCellSets || 0);
 
     const newOpen = +(currentWarehouse.openCellSets + ocDelta).toFixed(2);
     const newClosed = +(currentWarehouse.closedCellSets + ccDelta).toFixed(2);
@@ -368,7 +371,7 @@ export const completeJobInSupabase = async (
 
     // 3. Inventory item delta
     const updatedItems = [...currentWarehouse.items];
-    const estimatedInv = estimatedMaterials.inventory || [];
+    const estimatedInv = (estimatedMaterials.reserved?.inventory ?? estimatedMaterials.inventory) || [];
     const actualInv = actuals.inventory || [];
 
     const diffMap = new Map<string, number>();

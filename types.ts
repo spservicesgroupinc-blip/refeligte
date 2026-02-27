@@ -167,6 +167,13 @@ export interface EstimateRecord {
     openCellSets: number;
     closedCellSets: number;
     inventory: InventoryItem[];
+    // Tracks exactly what was deducted from warehouse when Work Order was created.
+    // Used as the reconciliation baseline on edit, delete, and crew completion.
+    reserved?: {
+      openCellSets: number;
+      closedCellSets: number;
+      inventory: InventoryItem[];
+    };
   };
   totalValue: number;
   // Snapshots for PDF reproduction
