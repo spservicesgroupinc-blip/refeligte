@@ -300,33 +300,40 @@ create policy "companies_update"
   using (id = (select public.get_my_company_id()))
   with check (id = (select public.get_my_company_id()));
 
+-- === HELPER: admin check (SECURITY DEFINER avoids RLS recursion) ===
+create or replace function public.is_company_admin()
+returns boolean
+language sql
+security definer
+set search_path = ''
+stable
+as $$
+  select exists (
+    select 1 from public.company_members
+    where user_id = (select auth.uid())
+      and role in ('owner', 'admin')
+  );
+$$;
+
 -- === COMPANY_MEMBERS ===
 -- All members can see their teammates
-create policy "members_select"
+create policy "members_select_teammates"
   on public.company_members for select to authenticated
   using (company_id = (select public.get_my_company_id()));
 
--- Only admins/owners can manage crew members
+-- Only admins/owners can manage crew members (uses SECURITY DEFINER helper)
 create policy "members_insert"
   on public.company_members for insert to authenticated
   with check (
     company_id = (select public.get_my_company_id())
-    and exists (
-      select 1 from public.company_members
-      where user_id = (select auth.uid())
-        and role in ('owner', 'admin')
-    )
+    and (select public.is_company_admin())
   );
 
 create policy "members_update"
   on public.company_members for update to authenticated
   using (
     company_id = (select public.get_my_company_id())
-    and exists (
-      select 1 from public.company_members
-      where user_id = (select auth.uid())
-        and role in ('owner', 'admin')
-    )
+    and (select public.is_company_admin())
   )
   with check (company_id = (select public.get_my_company_id()));
 
@@ -334,11 +341,7 @@ create policy "members_delete"
   on public.company_members for delete to authenticated
   using (
     company_id = (select public.get_my_company_id())
-    and exists (
-      select 1 from public.company_members
-      where user_id = (select auth.uid())
-        and role in ('owner', 'admin')
-    )
+    and (select public.is_company_admin())
   );
 
 -- === CUSTOMERS ===
