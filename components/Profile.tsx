@@ -41,17 +41,13 @@ export const Profile: React.FC<ProfileProps> = ({ state, onUpdateProfile, onUpda
     setCrewResults(prev => { const next = { ...prev }; delete next[crew.id]; return next; });
 
     try {
-      // First sync the crew row (so it exists in DB for the trigger)
-      onManualSync();
-      // Small delay to let the sync complete
-      await new Promise(r => setTimeout(r, 1500));
-
       const { userId, error } = await createCrewAuthAccount(
         companyId,
         crew.id,
         crew.email.trim(),
         password,
-        crew.name
+        crew.name,
+        { pin: crew.pin, leadName: crew.leadName, phone: crew.phone, truckInfo: crew.truckInfo, status: crew.status }
       );
 
       if (error) {

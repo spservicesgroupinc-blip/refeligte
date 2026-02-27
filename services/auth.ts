@@ -94,17 +94,44 @@ export const crewLogin = async (
 // ─── Create Crew Auth Account (called by admin from Profile page) ──
 // Uses a separate, non-persisted Supabase client so the admin
 // stays logged in while the crew auth user is created.
+// Ensures the crew row exists in company_members BEFORE auth signup.
 export const createCrewAuthAccount = async (
   companyId: string,
   memberId: string,
   email: string,
   password: string,
-  crewName: string
+  crewName: string,
+  crewData?: { pin?: string; leadName?: string; phone?: string; truckInfo?: string; status?: string }
 ): Promise<{ userId: string | null; error: string | null }> => {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-  // Throwaway client — won't touch the admin's session
+  // Step 1: Ensure the crew member row exists in DB BEFORE auth signup.
+  // This prevents the race condition where the trigger fires before sync.
+  const { error: upsertError } = await supabase
+    .from('company_members')
+    .upsert(
+      {
+        id: memberId,
+        company_id: companyId,
+        role: 'crew',
+        crew_name: crewName,
+        crew_email: email,
+        crew_pin: crewData?.pin || null,
+        lead_name: crewData?.leadName || null,
+        phone: crewData?.phone || null,
+        truck_info: crewData?.truckInfo || null,
+        status: crewData?.status || 'Active',
+      },
+      { onConflict: 'id' }
+    );
+
+  if (upsertError) {
+    console.error('createCrewAuthAccount: failed to upsert crew row', upsertError);
+    return { userId: null, error: `Failed to prepare crew record: ${upsertError.message}` };
+  }
+
+  // Step 2: Create the auth user with a throwaway client (won't touch admin session)
   const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
       persistSession: false,

@@ -27,6 +27,7 @@ declare
   user_role text;
   target_company_id uuid;
   target_member_id uuid;
+  rows_affected int;
 begin
   user_role := coalesce(new.raw_user_meta_data ->> 'role', 'admin');
 
@@ -39,13 +40,38 @@ begin
       raise exception 'Crew signup missing company_id or member_id in metadata';
     end if;
 
-    -- Set user_id and email on the pre-created company_members row
+    -- Verify the company actually exists
+    if not exists (select 1 from public.companies where id = target_company_id) then
+      raise exception 'Crew signup: company_id % does not exist', target_company_id;
+    end if;
+
+    -- Try to update the pre-created company_members row
     update public.company_members
     set user_id    = new.id,
-        crew_email = new.email
+        crew_email = new.email,
+        crew_name  = coalesce(crew_name, new.raw_user_meta_data ->> 'crew_name')
     where id         = target_member_id
       and company_id = target_company_id
       and user_id is null;
+
+    get diagnostics rows_affected = row_count;
+
+    -- If no row was found to update, create it (fallback for race condition)
+    if rows_affected = 0 then
+      insert into public.company_members (id, company_id, user_id, role, crew_name, crew_email, status)
+      values (
+        target_member_id,
+        target_company_id,
+        new.id,
+        'crew',
+        coalesce(new.raw_user_meta_data ->> 'crew_name', 'Crew'),
+        new.email,
+        'Active'
+      )
+      on conflict (id) do update
+      set user_id    = new.id,
+          crew_email = new.email;
+    end if;
 
     return new;
   end if;

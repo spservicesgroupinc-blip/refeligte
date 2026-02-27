@@ -6,7 +6,8 @@
       "Bash(where:*)",
       "Bash(ls:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx vite build)"
+      "Bash(npx vite build)",
+      "mcp__Neon__list_projects"
     ]
   }
 }
