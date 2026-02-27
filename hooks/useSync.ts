@@ -178,6 +178,45 @@ export const useSync = () => {
     if (!session) return;
     dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
 
+    // ── CREW: Read-only refresh (never write back full state) ──
+    if (session.role === 'crew') {
+      try {
+        let cloudData: Partial<typeof DEFAULT_STATE> | null = null;
+
+        if (session.companyId) {
+          cloudData = await loadFullAppState(session.companyId);
+        } else if (session.spreadsheetId) {
+          cloudData = await syncDown(session.spreadsheetId);
+        }
+
+        if (cloudData) {
+          const mergedState = {
+            ...DEFAULT_STATE,
+            ...cloudData,
+            companyProfile: { ...DEFAULT_STATE.companyProfile, ...(cloudData.companyProfile || {}) },
+            warehouse: { ...DEFAULT_STATE.warehouse, ...(cloudData.warehouse || {}) },
+            costs: { ...DEFAULT_STATE.costs, ...(cloudData.costs || {}) },
+            yields: { ...DEFAULT_STATE.yields, ...(cloudData.yields || {}) },
+            expenses: { ...DEFAULT_STATE.expenses, ...(cloudData.expenses || {}) },
+          };
+
+          dispatch({ type: 'LOAD_DATA', payload: mergedState });
+          lastSyncedStateRef.current = JSON.stringify(mergedState);
+          dispatch({ type: 'SET_SYNC_STATUS', payload: 'success' });
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Work Orders Refreshed!' } });
+          setTimeout(() => dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' }), 3000);
+        } else {
+          throw new Error('No data returned');
+        }
+      } catch (e) {
+        console.error('Crew sync refresh failed:', e);
+        dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
+        dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Refresh Failed. Check Internet.' } });
+      }
+      return;
+    }
+
+    // ── ADMIN: Write state to cloud ──
     let success = false;
 
     if (session.companyId) {
