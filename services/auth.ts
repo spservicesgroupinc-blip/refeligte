@@ -179,7 +179,7 @@ export const onAuthStateChange = (
   callback: (session: UserSession | null) => void
 ) => {
   return supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN' && session?.user) {
+    if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
       const userSession = await buildSessionFromUser(session.user, session);
       callback(userSession);
     } else if (event === 'SIGNED_OUT') {

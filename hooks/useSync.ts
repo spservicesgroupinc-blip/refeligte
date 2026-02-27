@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { useCalculator, DEFAULT_STATE } from '../context/CalculatorContext';
 import { syncUp, syncDown } from '../services/api';
 import { loadFullAppState, saveFullAppState } from '../services/database';
+import { getCurrentSession, onAuthStateChange } from '../services/auth';
 
 export const useSync = () => {
   const { state, dispatch } = useCalculator();
@@ -10,20 +11,59 @@ export const useSync = () => {
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSyncedStateRef = useRef<string>("");
 
-  // 1. SESSION RECOVERY
+  // 1. SESSION RECOVERY — Supabase-first, localStorage fallback
   useEffect(() => {
-    const savedSession = localStorage.getItem('foamProSession');
-    if (savedSession) {
+    let cancelled = false;
+
+    const recoverSession = async () => {
       try {
-        const parsedSession = JSON.parse(savedSession);
-        dispatch({ type: 'SET_SESSION', payload: parsedSession });
+        // Try Supabase auth session first (JWT auto-refreshes)
+        const supaSession = await getCurrentSession();
+        if (!cancelled && supaSession) {
+          dispatch({ type: 'SET_SESSION', payload: supaSession });
+          localStorage.setItem('foamProSession', JSON.stringify(supaSession));
+          return;
+        }
       } catch (e) {
+        console.warn('Supabase session recovery failed, trying localStorage:', e);
+      }
+
+      // Fallback: localStorage (legacy or offline)
+      if (!cancelled) {
+        const savedSession = localStorage.getItem('foamProSession');
+        if (savedSession) {
+          try {
+            const parsedSession = JSON.parse(savedSession);
+            dispatch({ type: 'SET_SESSION', payload: parsedSession });
+          } catch (e) {
+            localStorage.removeItem('foamProSession');
+            dispatch({ type: 'SET_LOADING', payload: false });
+          }
+        } else {
+          dispatch({ type: 'SET_LOADING', payload: false });
+        }
+      }
+    };
+
+    recoverSession();
+
+    // Listen for auth state changes (token refresh, sign-out from another tab)
+    const { data: { subscription } } = onAuthStateChange((updatedSession) => {
+      if (cancelled) return;
+      if (updatedSession) {
+        dispatch({ type: 'SET_SESSION', payload: updatedSession });
+        localStorage.setItem('foamProSession', JSON.stringify(updatedSession));
+      } else {
+        // Signed out
+        dispatch({ type: 'LOGOUT' });
         localStorage.removeItem('foamProSession');
       }
-    } else {
-        // If no session, ensure loading stops
-        dispatch({ type: 'SET_LOADING', payload: false });
-    }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [dispatch]);
 
   // 2. CLOUD-FIRST INITIALIZATION
