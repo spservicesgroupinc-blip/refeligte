@@ -2,12 +2,24 @@
 import React from 'react';
 import { useCalculator, DEFAULT_STATE } from '../context/CalculatorContext';
 import { EstimateRecord, CalculationResults, CustomerProfile, PurchaseOrder } from '../types';
-import { deleteEstimate, markJobPaid, createWorkOrderSheet, syncUp } from '../services/api';
+import { deleteEstimate as legacyDeleteEstimate, markJobPaid as legacyMarkJobPaid, createWorkOrderSheet, syncUp } from '../services/api';
+import {
+  upsertEstimate,
+  deleteEstimateById,
+  markEstimatePaid,
+  upsertCustomer,
+  updateFoamStock,
+  insertPurchaseOrder,
+  syncWarehouseItems,
+  uploadPdf,
+} from '../services/database';
 import { generateWorkOrderPDF, generateDocumentPDF } from '../utils/pdfGenerator';
 
 export const useEstimates = () => {
   const { state, dispatch } = useCalculator();
   const { appData, ui, session } = state;
+
+  const isSupabase = !!session?.companyId && !session?.spreadsheetId;
 
   const loadEstimateForEditing = (record: EstimateRecord) => {
     dispatch({
@@ -47,7 +59,7 @@ export const useEstimates = () => {
         return null; 
     }
 
-    const estimateId = ui.editingEstimateId || Math.random().toString(36).substr(2, 9);
+    const estimateId = ui.editingEstimateId || crypto.randomUUID();
     const existingRecord = appData.savedEstimates.find(e => e.id === estimateId);
     
     let newStatus: EstimateRecord['status'] = targetStatus || (existingRecord?.status || 'Draft');
@@ -60,7 +72,7 @@ export const useEstimates = () => {
 
     const newEstimate: EstimateRecord = {
       id: estimateId,
-      customerId: appData.customerProfile.id || Math.random().toString(36).substr(2, 9),
+      customerId: appData.customerProfile.id || crypto.randomUUID(),
       date: existingRecord?.date || new Date().toISOString(),
       scheduledDate: appData.scheduledDate,
       assignedCrewId: appData.assignedCrewId,
@@ -135,8 +147,16 @@ export const useEstimates = () => {
     dispatch({ type: 'SET_EDITING_ESTIMATE', payload: estimateId });
     
     if (!appData.customers.find(c => c.id === appData.customerProfile.id)) {
-        const newCustomer = { ...appData.customerProfile, id: appData.customerProfile.id || Math.random().toString(36).substr(2, 9) };
+        const newCustomer = { ...appData.customerProfile, id: appData.customerProfile.id || crypto.randomUUID() };
         saveCustomer(newCustomer);
+    }
+
+    // ── Persist to Supabase ──
+    if (isSupabase && session?.companyId) {
+      upsertEstimate(session.companyId, newEstimate).catch(console.error);
+      if (warehouseUpdated) {
+        syncWarehouseItems(session.companyId, newWarehouse.items).catch(console.error);
+      }
     }
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -180,33 +200,58 @@ export const useEstimates = () => {
           dispatch({ type: 'SET_EDITING_ESTIMATE', payload: null }); 
           dispatch({ type: 'SET_VIEW', payload: 'dashboard' }); 
       }
-      if (session?.spreadsheetId) {
-          try {
-              await deleteEstimate(id, session.spreadsheetId);
-              dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Job Deleted' } });
-          } catch (err) {
-              dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Local delete success, but server failed.' } });
-          }
+
+      // ── Delete from backend ──
+      if (isSupabase) {
+        try {
+          await deleteEstimateById(id);
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Job Deleted' } });
+        } catch (err) {
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Local delete success, but server failed.' } });
+        }
+      } else if (session?.spreadsheetId) {
+        try {
+          await legacyDeleteEstimate(id, session.spreadsheetId);
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Job Deleted' } });
+        } catch (err) {
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Local delete success, but server failed.' } });
+        }
       }
     }
   };
 
   const handleMarkPaid = async (id: string) => {
       const estimate = appData.savedEstimates.find(e => e.id === id);
-      if (estimate) {
-         dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Processing Payment & P&L...' } });
-         dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
-         const result = await markJobPaid(id, session?.spreadsheetId || '');
-         if (result.success && result.estimate) {
-             const updatedEstimates = appData.savedEstimates.map(e => e.id === id ? result.estimate! : e);
-             dispatch({ type: 'UPDATE_DATA', payload: { savedEstimates: updatedEstimates } });
-             dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Paid! Profit Calculated.' } });
-             generateDocumentPDF(appData, estimate.results, 'RECEIPT', result.estimate);
-         } else {
-             dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Failed to update P&L.' } });
-         }
-         dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' });
+      if (!estimate) return;
+
+      dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Processing Payment & P&L...' } });
+      dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
+
+      if (isSupabase && session?.companyId) {
+        // ── Supabase P&L ──
+        const paidRecord = await markEstimatePaid(session.companyId, id, appData);
+        if (paidRecord) {
+          const updatedEstimates = appData.savedEstimates.map(e => e.id === id ? paidRecord : e);
+          dispatch({ type: 'UPDATE_DATA', payload: { savedEstimates: updatedEstimates } });
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Paid! Profit Calculated.' } });
+          generateDocumentPDF(appData, estimate.results, 'RECEIPT', paidRecord);
+        } else {
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Failed to update P&L.' } });
+        }
+      } else if (session?.spreadsheetId) {
+        // ── Legacy path ──
+        const result = await legacyMarkJobPaid(id, session.spreadsheetId);
+        if (result.success && result.estimate) {
+          const updatedEstimates = appData.savedEstimates.map(e => e.id === id ? result.estimate! : e);
+          dispatch({ type: 'UPDATE_DATA', payload: { savedEstimates: updatedEstimates } });
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Paid! Profit Calculated.' } });
+          generateDocumentPDF(appData, estimate.results, 'RECEIPT', result.estimate);
+        } else {
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Failed to update P&L.' } });
+        }
       }
+
+      dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' });
   };
 
   const saveCustomer = (customerData: CustomerProfile) => {
@@ -219,6 +264,11 @@ export const useEstimates = () => {
         dispatch({ type: 'UPDATE_DATA', payload: { customers: updatedCustomers, customerProfile: customerData } });
     } else {
         dispatch({ type: 'UPDATE_DATA', payload: { customers: updatedCustomers } });
+    }
+
+    // ── Persist customer to Supabase ──
+    if (isSupabase && session?.companyId) {
+      upsertCustomer(session.companyId, customerData).catch(console.error);
     }
   };
 
@@ -256,7 +306,7 @@ export const useEstimates = () => {
         dispatch({ type: 'UPDATE_DATA', payload: { warehouse: newWarehouse } });
     }
 
-    // 3. Save Estimate as Work Order & Update Warehouse State
+    // 3. Save Estimate as Work Order
     let record = await saveEstimate(results, 'Work Order');
     
     if (record) {
@@ -267,16 +317,22 @@ export const useEstimates = () => {
         }
         dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
         
-        if (session?.spreadsheetId) {
-             const updatedState = { ...appData, warehouse: newWarehouse };
-             await syncUp(updatedState, session.spreadsheetId);
-             
-             // NEW: Pass folderId and spreadsheetId to backend
-             const woUrl = await createWorkOrderSheet(record, session.folderId, session.spreadsheetId);
-             if (woUrl) {
-                 record = await saveEstimate(results, 'Work Order', { workOrderSheetUrl: woUrl });
-                 dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Work Order Created & Synced' } });
-             }
+        if (isSupabase && session?.companyId) {
+          // ── Supabase: update foam stock ──
+          if (!isAlreadySold) {
+            await updateFoamStock(session.companyId, newWarehouse.openCellSets, newWarehouse.closedCellSets);
+          }
+          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Work Order Created & Synced' } });
+        } else if (session?.spreadsheetId) {
+          // ── Legacy path ──
+          const updatedState = { ...appData, warehouse: newWarehouse };
+          await syncUp(updatedState, session.spreadsheetId);
+          
+          const woUrl = await createWorkOrderSheet(record, session.folderId, session.spreadsheetId);
+          if (woUrl) {
+              record = await saveEstimate(results, 'Work Order', { workOrderSheetUrl: woUrl });
+              dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Work Order Created & Synced' } });
+          }
         }
 
         dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' });
@@ -303,11 +359,20 @@ export const useEstimates = () => {
       dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Order Saved & Stock Updated' } });
       dispatch({ type: 'SET_VIEW', payload: 'warehouse' });
       
-      if (session?.spreadsheetId) {
-          dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
-          const updatedState = { ...appData, warehouse: newWarehouse, purchaseOrders: updatedPOs };
-          await syncUp(updatedState, session.spreadsheetId);
-          dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' });
+      if (isSupabase && session?.companyId) {
+        // ── Supabase: persist PO + update foam stock + sync warehouse items ──
+        dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
+        await Promise.all([
+          insertPurchaseOrder(session.companyId, po),
+          updateFoamStock(session.companyId, newWarehouse.openCellSets, newWarehouse.closedCellSets),
+          syncWarehouseItems(session.companyId, newWarehouse.items),
+        ]);
+        dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' });
+      } else if (session?.spreadsheetId) {
+        dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
+        const updatedState = { ...appData, warehouse: newWarehouse, purchaseOrders: updatedPOs };
+        await syncUp(updatedState, session.spreadsheetId);
+        dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' });
       }
   };
 

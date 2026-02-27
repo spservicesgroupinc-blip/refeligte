@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { CalculatorState, EstimateRecord } from '../types';
 import { logCrewTime, completeJob, syncDown } from '../services/api';
+import { completeJobInSupabase } from '../services/database';
 
 interface CrewDashboardProps {
   state: CalculatorState;
@@ -170,32 +171,50 @@ export const CrewDashboard: React.FC<CrewDashboardProps> = ({ state, onLogout, s
             completedBy: session.crewName || session.username || "Crew"
         };
 
-        if (!session.spreadsheetId) {
-            // Supabase user — complete job locally for now (Edge Function will replace)
-            // TODO: Replace with Supabase Edge Function call
-            setShowCompletionModal(false);
-            setSelectedJobId(null);
-            return;
-        }
+        if (session.companyId && !session.spreadsheetId) {
+            // ── Supabase path ──
+            const result = await completeJobInSupabase(
+                session.companyId,
+                selectedJob.id,
+                finalData,
+                selectedJob.materials,
+                state.warehouse
+            );
 
-        const success = await completeJob(selectedJob.id, finalData, session.spreadsheetId);
-        
-        if (success) {
-            setShowCompletionModal(false);
-            setSelectedJobId(null);
+            if (result.success) {
+                setShowCompletionModal(false);
+                setSelectedJobId(null);
+                setTimeout(async () => {
+                    try {
+                        await onSync();
+                        alert("Job Completed Successfully!");
+                    } catch(e) {
+                        console.error("Sync failed after completion", e);
+                        window.location.reload();
+                    }
+                }, 500);
+            } else {
+                alert("Error syncing completion. Please check your internet connection.");
+            }
+        } else if (session.spreadsheetId) {
+            // ── Legacy path ──
+            const success = await completeJob(selectedJob.id, finalData, session.spreadsheetId);
             
-            // Critical: Wait briefly for backend flush, then Force Sync to update UI immediately
-            setTimeout(async () => {
-                try {
-                    await onSync(); 
-                    alert("Job Completed Successfully!");
-                } catch(e) {
-                    console.error("Sync failed after completion", e);
-                    window.location.reload();
-                }
-            }, 1000);
-        } else {
-            alert("Error syncing completion. Please check your internet connection.");
+            if (success) {
+                setShowCompletionModal(false);
+                setSelectedJobId(null);
+                setTimeout(async () => {
+                    try {
+                        await onSync(); 
+                        alert("Job Completed Successfully!");
+                    } catch(e) {
+                        console.error("Sync failed after completion", e);
+                        window.location.reload();
+                    }
+                }, 1000);
+            } else {
+                alert("Error syncing completion. Please check your internet connection.");
+            }
         }
       } catch (error: any) {
          console.error("Completion Error:", error);

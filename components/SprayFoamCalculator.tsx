@@ -12,7 +12,6 @@ import { useSync } from '../hooks/useSync';
 import { useEstimates } from '../hooks/useEstimates';
 import { calculateResults } from '../utils/calculatorHelpers';
 import { generateEstimatePDF, generateDocumentPDF, generateWorkOrderPDF } from '../utils/pdfGenerator';
-import { syncUp } from '../services/api';
 import { signOut } from '../services/auth';
 
 import LoginPage from './LoginPage';
@@ -128,14 +127,6 @@ const SprayFoamCalculator: React.FC = () => {
   const handleSaveAndMarkPaid = async () => {
       const savedRecord = await saveEstimate(results, 'Invoiced');
       if (savedRecord) {
-          if (session?.spreadsheetId) {
-             dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
-             const stateSnapshot = {
-                 ...appData,
-                 savedEstimates: appData.savedEstimates.map(e => e.id === savedRecord.id ? savedRecord : e)
-             };
-             await syncUp(stateSnapshot, session.spreadsheetId);
-          }
           await handleMarkPaid(savedRecord.id);
       }
   };
